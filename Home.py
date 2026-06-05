@@ -56,6 +56,7 @@ def main() -> None:
             with st.spinner("Generating synthetic plant + motor data…"):
                 data.save_synthetic_data()
             st.cache_data.clear()
+            st.cache_resource.clear()
             st.rerun()
         st.stop()
 
@@ -71,12 +72,15 @@ def main() -> None:
     with right:
         st.subheader("Modules")
         st.markdown(
-            "- **Energy Baseline** — ISO 50001 regression *(build step 2)*\n"
-            "- **Savings M&V** — IPMVP Option C *(build step 3)*\n"
-            "- **Forecast & Anomaly** *(build step 4)*\n"
-            "- **Optimization** *(build step 5)*"
+            "- **📊 Energy Baseline** — ISO 50001 regression that learns the plant's normal energy\n"
+            "- **✅ Savings M&V** — IPMVP Option C: verified savings in ₹ and CO₂\n"
+            "- **🔮 Forecast & Anomaly** — load forecast + abnormal-day detection\n"
+            "- **⚙️ Optimization** — ranked actions with payback"
         )
-        st.info("Engine stubs are wired and import-clean. Each page is a placeholder until its step lands.")
+        st.info(
+            "💡 The demo data hides a real **6% efficiency project on 2025-09-01** and "
+            "**5 anomaly days** — explore the sidebar pages and see if the engine finds them."
+        )
 
     with st.expander("Preview raw data"):
         st.dataframe(plant.head(50), use_container_width=True)

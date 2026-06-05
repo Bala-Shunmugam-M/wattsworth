@@ -168,8 +168,16 @@ def time_of_use_shifting(
     if spread <= 0:
         return []
 
-    annual_energy = float(df[target].mean()) * 365.0
-    shiftable_kwh = annual_energy * shiftable_fraction
+    # Only peak-period energy is eligible to shift. Use the data's own tariff_period
+    # split when present; otherwise conservatively treat all energy as peak.
+    days = len(df)
+    annual_scale = 365.0 / days if days else 0.0
+    if "tariff_period" in df.columns:
+        is_peak = df["tariff_period"].astype(str).str.lower().eq("peak")
+        annual_peak_energy = float(df.loc[is_peak, target].sum()) * annual_scale
+    else:
+        annual_peak_energy = float(df[target].mean()) * 365.0
+    shiftable_kwh = annual_peak_energy * shiftable_fraction
     inr = shiftable_kwh * spread
     if inr <= 0:
         return []

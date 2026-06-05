@@ -55,9 +55,15 @@ if start >= end:
     st.error("Baseline start must be before baseline end.")
     st.stop()
 
-# --- Fit ---------------------------------------------------------------------
+# --- Fit (cached so re-runs that don't change the window don't refit) --------
+@st.cache_resource(show_spinner=False)
+def _fit_cached(fp: tuple, start_iso: str, end_iso: str) -> baseline.BaselineModel:
+    return baseline.fit_baseline(plant, baseline_period=(start_iso, end_iso))
+
+
+_FP = (len(plant), float(plant["energy_kwh"].sum()))
 try:
-    model = baseline.fit_baseline(plant, baseline_period=(str(start), str(end)))
+    model = _fit_cached(_FP, str(start), str(end))
 except ValueError as exc:
     st.error(f"Could not fit baseline: {exc}")
     st.stop()

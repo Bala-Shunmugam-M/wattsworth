@@ -57,9 +57,15 @@ if baseline_start >= intervention:
 
 baseline_end = (pd.Timestamp(intervention) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
-# --- Fit + measure -----------------------------------------------------------
+# --- Fit + measure (baseline fit cached; tariff/CO2 sliders don't refit) ------
+@st.cache_resource(show_spinner=False)
+def _fit_cached(fp: tuple, start_iso: str, end_iso: str) -> baseline.BaselineModel:
+    return baseline.fit_baseline(plant, baseline_period=(start_iso, end_iso))
+
+
 try:
-    model = baseline.fit_baseline(plant, baseline_period=(str(baseline_start), baseline_end))
+    _fp = (len(plant), float(plant["energy_kwh"].sum()))
+    model = _fit_cached(_fp, str(baseline_start), baseline_end)
     avoided = mv.compute_savings(plant, model, str(intervention))
     summary = mv.summarize_savings(avoided, tariff_inr_per_kwh=tariff, emission_factor=emission)
 except ValueError as exc:

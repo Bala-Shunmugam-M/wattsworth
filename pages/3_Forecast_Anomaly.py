@@ -29,6 +29,23 @@ if plant is None:
 
 plant = plant.copy()
 plant["date"] = pd.to_datetime(plant["date"])
+_FP = (len(plant), float(plant["energy_kwh"].sum()))
+
+
+@st.cache_resource(show_spinner=False)
+def _fit_full(fp: tuple) -> baseline.BaselineModel:
+    return baseline.fit_baseline(plant)
+
+
+@st.cache_resource(show_spinner=False)
+def _multivariate(fp: tuple, contamination: float) -> pd.DataFrame:
+    return anomaly.detect_multivariate_anomalies(plant, contamination=contamination)
+
+
+@st.cache_resource(show_spinner=False)
+def _forecast_cached(fp: tuple, horizon: int):
+    return fc.forecast(plant, horizon_days=horizon)
+
 
 # ============================================================ ANOMALY DETECTION
 st.subheader("1 · Anomaly detection")
@@ -40,11 +57,11 @@ method = ac2.radio("Method", ["Baseline residual (spikes)", "Multivariate (Isola
 
 try:
     if method.startswith("Baseline"):
-        model = baseline.fit_baseline(plant)
+        model = _fit_full(_FP)
         result = anomaly.detect_residual_anomalies(plant, model, sigma=sigma)
         flagged = result[result["is_anomaly"]]
     else:
-        result = anomaly.detect_multivariate_anomalies(plant, contamination=0.02)
+        result = _multivariate(_FP, 0.02)
         flagged = result[result["is_anomaly"]]
 except ValueError as exc:
     st.error(f"Detection failed: {exc}")
@@ -58,9 +75,9 @@ fig = go.Figure()
 fig.add_trace(go.Scatter(x=plant["date"], y=plant["energy_kwh"], name="Energy",
                          line=dict(color="#6B2737", width=1.1)))
 if not flagged.empty and "date" in flagged.columns:
-    flagged_energy = plant.set_index("date").loc[flagged["date"], "energy_kwh"]
+    marks = flagged[["date"]].merge(plant[["date", "energy_kwh"]], on="date", how="left")
     fig.add_trace(go.Scatter(
-        x=flagged["date"], y=flagged_energy.to_numpy(), name="Anomaly", mode="markers",
+        x=marks["date"], y=marks["energy_kwh"], name="Anomaly", mode="markers",
         marker=dict(color="#C8102E", size=9, symbol="x"),
     ))
 fig.update_layout(height=340, margin=dict(l=10, r=10, t=20, b=10),
@@ -81,7 +98,7 @@ st.subheader("2 · Energy forecast")
 horizon = st.slider("Forecast horizon (days)", 7, 60, 21, 1)
 
 try:
-    result_fc = fc.forecast(plant, horizon_days=horizon)
+    result_fc = _forecast_cached(_FP, horizon)
 except ValueError as exc:
     st.error(f"Forecast failed: {exc}")
     st.stop()

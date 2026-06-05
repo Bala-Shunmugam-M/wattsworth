@@ -86,6 +86,15 @@ def test_tou_bad_fraction_raises(plant: pd.DataFrame) -> None:
         optimize.time_of_use_shifting(plant, shiftable_fraction=1.5)
 
 
+def test_tou_only_shifts_peak_energy(plant: pd.DataFrame) -> None:
+    """Saving is based on the actual peak-period energy, not all energy."""
+    a = optimize.time_of_use_shifting(plant, shiftable_fraction=0.15)[0]
+    # Naive (wrong) figure shifts ALL energy; correct figure uses only peak days.
+    annual_all = plant["energy_kwh"].mean() * 365.0
+    naive = annual_all * 0.15 * (config.TARIFF_PEAK_INR_PER_KWH - config.TARIFF_OFFPEAK_INR_PER_KWH)
+    assert 0 < a.inr_saved < naive
+
+
 # --- Power-factor correction -------------------------------------------------
 def test_pf_correction_produces_action(motors: pd.DataFrame) -> None:
     actions = optimize.power_factor_correction(motors, target_pf=0.95)
