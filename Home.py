@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from engine import baseline, carbon, config, data, economics
+from engine import baseline, carbon, config, data, economics, ingestion
 
 st.set_page_config(
     page_title="WattsWorth — Industrial Energy Intelligence",
@@ -103,6 +103,43 @@ def main() -> None:
             st.cache_data.clear()
             st.cache_resource.clear()
             st.rerun()
+
+    with st.expander("📤 Upload your own plant data (CSV)"):
+        st.caption(
+            "Columns: date, energy_kwh, production_tonnes, ambient_temp_c, operating_hours, "
+            "grid_pf, tariff_period. Messy data (commas, blanks, duplicates, out-of-range) is "
+            "cleaned and validated before use."
+        )
+        uploaded = st.file_uploader("CSV file", type=["csv"])
+        if uploaded is not None:
+            try:
+                raw = pd.read_csv(uploaded)
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Could not read CSV: {exc}")
+            else:
+                cleaned, report = ingestion.validate_and_clean_plant_energy(raw)
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Rows received", report.rows_in)
+                r2.metric("Rows accepted", report.rows_out)
+                r3.metric("Rows dropped", report.dropped_invalid_rows)
+                if any([report.coerced_cells, report.duplicate_rows_removed,
+                        report.clipped_cells, report.date_gaps]):
+                    st.caption(
+                        f"Cleaned — {report.coerced_cells} cells coerced, "
+                        f"{report.duplicate_rows_removed} duplicate dates removed, "
+                        f"{report.clipped_cells} values clipped, {report.date_gaps} date gaps."
+                    )
+                for msg in report.messages:
+                    st.caption("• " + msg)
+                if report.ok:
+                    if st.button("Use this dataset", type="primary"):
+                        cleaned.to_csv(config.PLANT_ENERGY_CSV, index=False)
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                        st.success("Dataset loaded.")
+                        st.rerun()
+                else:
+                    st.error("Dataset unusable: " + "; ".join(report.messages))
 
 
 if __name__ == "__main__":
