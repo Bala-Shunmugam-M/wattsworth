@@ -79,6 +79,11 @@ ISO 50001 (EnPI / energy baseline) · IPMVP Option C (M&V) · ASHRAE Guideline 1
 acceptance) · CUSUM · specific energy consumption (SEC) benchmarking · power-factor /
 demand-charge economics.
 
+See **[docs/METHODS_AND_LIMITATIONS.md](docs/METHODS_AND_LIMITATIONS.md)** for a candid
+account of the methods, their assumptions, and where the tool is simplified — including the
+clean-vs-realistic data modes, in-sample vs out-of-sample validation, and the
+autocorrelation-corrected significance test.
+
 ## Tech stack
 
 Python 3.13 · Streamlit · pandas · numpy · statsmodels · scikit-learn · plotly.
