@@ -33,3 +33,6 @@ run_err.txt
 
 # Temporary commit-message files
 _commitmsg.txt
+
+# Raw downloaded external datasets (the small daily aggregate IS committed)
+data/external/

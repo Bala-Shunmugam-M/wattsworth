@@ -76,6 +76,12 @@ truth in `DataFrame.attrs`, and deliberately does **not** persist those labels t
 the analytics must rediscover the events from the data alone. This is how you'd validate a
 detector before trusting it on a real plant.
 
+The same engine is **also validated on a real public dataset** (UCI Steel Industry Energy
+Consumption — DAEWOO Steel, Korea): it generalises with sensible coefficients, its
+diagnostics correctly flag the autocorrelation in real data, and it honestly reports the
+baseline as *not* IPMVP-certifiable on proxy drivers. See
+**[docs/PUBLIC_DATASET_VALIDATION.md](docs/PUBLIC_DATASET_VALIDATION.md)**.
+
 ## Standards implemented
 
 ISO 50001 (EnPI / energy baseline) · IPMVP Option C (M&V) · ASHRAE Guideline 14 (CV(RMSE)

@@ -30,8 +30,11 @@ The data is generated, not metered. **Mitigation:** two modes ship — a *clean*
 with non-linearity, autocorrelated/heteroskedastic noise, collinear drivers, weekend
 effects, and missing days. On realistic data the baseline R² falls to ~0.57 and
 Durbin–Watson to ~1.1 — the engine is shown degrading honestly rather than recovering a
-model identical to the one that generated the data. **Next:** run the same engine on a
-public building/industrial energy dataset and report CV(RMSE) on data nobody here generated.
+model identical to the one that generated the data. **Done:** the engine has now also been
+run on a real public dataset (UCI Steel Industry Energy Consumption, DAEWOO Steel, Korea) —
+R²=0.60, CV(RMSE) 36%, Durbin–Watson 1.01; it generalises with sensible coefficients, the
+diagnostics flag the real autocorrelation, and it correctly reports the baseline as *not*
+IPMVP-certifiable on proxy drivers. See [PUBLIC_DATASET_VALIDATION.md](PUBLIC_DATASET_VALIDATION.md).
 
 ### 2. In-sample fit is optimistic
 R² and in-sample CV(RMSE) overstate predictive accuracy. **Mitigation:** an out-of-sample
