@@ -30,3 +30,6 @@ htmlcov/
 # Local Streamlit run logs (from headless launches)
 run_out.txt
 run_err.txt
+
+# Temporary commit-message files
+_commitmsg.txt
