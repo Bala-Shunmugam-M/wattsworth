@@ -145,6 +145,112 @@ def generate_synthetic_plant_data(days: int = 540, seed: int = 42) -> pd.DataFra
     return df
 
 
+def generate_realistic_plant_data(days: int = 540, seed: int = 42) -> pd.DataFrame:
+    """Generate a *hard-mode* dataset that the linear baseline does NOT fully assume.
+
+    The clean generator above produces data that is exactly linear in the drivers,
+    which makes every method look perfect — circular validation. This generator
+    deliberately injects structure the OLS baseline cannot capture, so the engine
+    can be shown degrading honestly (lower R², higher out-of-sample CV(RMSE),
+    Durbin-Watson below 2):
+
+    * **Non-linearity** — quadratic cooling response to temperature and a
+      production×temperature interaction.
+    * **Collinear drivers** — production and operating hours are both driven by a
+      latent utilisation factor (raises VIF, like real plants).
+    * **Autocorrelated, heteroskedastic noise** — an AR(1) error whose scale grows
+      with load, instead of i.i.d. Gaussian.
+    * **Calendar effect** — ~5% lower energy at weekends.
+    * **Missing days** — ~2.5% of days dropped, simulating sensor outages.
+
+    The same 6% efficiency step (2025-09-01) and 5 anomaly spikes are injected, so
+    M&V and anomaly detection can still be validated — but now on realistic data.
+
+    Args:
+        days: Number of consecutive daily records before dropping missing days.
+        seed: RNG seed for reproducibility.
+
+    Returns:
+        DataFrame with columns :data:`PLANT_ENERGY_COLUMNS` (fewer rows than
+        ``days`` due to dropped missing days). ``.attrs`` carries the ground truth.
+    """
+    rng = np.random.default_rng(seed)
+    start = INTERVENTION_DATE - pd.Timedelta(days=days // 2)
+    dates = pd.date_range(start=start, periods=days, freq="D")
+    doy = dates.dayofyear.to_numpy()
+    dow = dates.dayofweek.to_numpy()  # 0=Mon .. 6=Sun
+
+    # Latent utilisation (slow AR(1)) couples production and operating hours.
+    u = np.empty(days)
+    u[0] = 0.85
+    for t in range(1, days):
+        u[t] = 0.85 + 0.7 * (u[t - 1] - 0.85) + rng.normal(0.0, 0.05)
+    u = np.clip(u, 0.55, 1.05)
+
+    production = (100.0 * u + rng.normal(0.0, 3.0, days)).clip(55.0, 108.0)
+    hours = (15.0 + 9.0 * u + rng.normal(0.0, 0.6, days)).clip(12.0, 24.0)
+    seasonal = 6.0 * np.sin(2.0 * np.pi * (doy - 110) / 365.0)
+    ambient = (30.0 + seasonal + rng.normal(0.0, 2.0, days)).clip(18.0, 44.0)
+    grid_pf = rng.normal(0.83, 0.04, days).clip(0.70, 0.98)
+    tariff_period = rng.choice(["peak", "offpeak"], size=days, p=[0.55, 0.45])
+
+    cool = np.maximum(ambient - 26.0, 0.0)
+    expected = (
+        1500.0
+        + 70.0 * production
+        + 30.0 * cool
+        + 2.2 * cool**2                                   # non-linear cooling
+        + 0.45 * production * np.maximum(ambient - 30.0, 0.0)  # interaction
+        + 85.0 * hours
+    )
+
+    # 6% efficiency step + ~5% weekend reduction (multiplicative).
+    post = np.asarray(dates >= INTERVENTION_DATE)
+    weekend = np.isin(dow, [5, 6]).astype(float)
+    expected = expected * np.where(post, 1.0 - STEP_REDUCTION, 1.0) * (1.0 - 0.05 * weekend)
+
+    # AR(1), heteroskedastic noise (scale grows with load).
+    rho_noise = 0.5
+    eps = np.empty(days)
+    eps[0] = rng.normal(0.0, 0.05 * expected[0])
+    for t in range(1, days):
+        shock = rng.normal(0.0, 0.05 * expected[t] * np.sqrt(1.0 - rho_noise**2))
+        eps[t] = rho_noise * eps[t - 1] + shock
+
+    energy = (expected + eps).clip(min=0.0)
+
+    # Inject anomaly spikes (kept out of the missing-day pool below).
+    candidate_idx = np.arange(10, days - 10)
+    anomaly_idx = np.sort(rng.choice(candidate_idx, size=N_ANOMALIES, replace=False))
+    energy[anomaly_idx] = energy[anomaly_idx] * rng.uniform(ANOMALY_MIN_MULT, ANOMALY_MAX_MULT, N_ANOMALIES)
+
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "energy_kwh": energy.round(0),
+            "production_tonnes": production.round(1),
+            "ambient_temp_c": ambient.round(1),
+            "operating_hours": hours.round(1),
+            "grid_pf": grid_pf.round(3),
+            "tariff_period": tariff_period,
+        }
+    )
+
+    # Drop ~2.5% of days as missing (never an anomaly or the intervention day).
+    protected = set(anomaly_idx.tolist())
+    droppable = [i for i in range(days) if i not in protected]
+    n_missing = int(round(0.025 * days))
+    missing_idx = rng.choice(droppable, size=n_missing, replace=False)
+    keep = np.ones(days, dtype=bool)
+    keep[missing_idx] = False
+    out = df.loc[keep].reset_index(drop=True)
+
+    out.attrs["intervention_date"] = INTERVENTION_DATE.isoformat()
+    out.attrs["anomaly_dates"] = [pd.Timestamp(d) for d in dates[anomaly_idx]]
+    out.attrs["mode"] = "realistic"
+    return out
+
+
 def generate_motor_register(seed: int = 42) -> pd.DataFrame:
     """Generate a credible motor asset register for a DRI plant.
 
@@ -199,24 +305,35 @@ def generate_motor_register(seed: int = 42) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=MOTOR_COLUMNS)
 
 
-def save_synthetic_data(data_dir: Optional[Path] = None) -> tuple[Path, Path]:
+def save_synthetic_data(
+    data_dir: Optional[Path] = None,
+    mode: str = "clean",
+) -> tuple[Path, Path]:
     """Generate and persist both synthetic datasets to CSV.
 
-    Uses the upgraded generators. Note that ground-truth ``.attrs`` are not
-    written to CSV by design — downstream analytics must rediscover the
-    intervention and anomalies from the data itself.
+    Ground-truth ``.attrs`` are intentionally not written to CSV — downstream
+    analytics must rediscover the intervention and anomalies from the data itself.
 
     Args:
         data_dir: Target directory; defaults to :data:`config.DATA_DIR`.
+        mode: ``"clean"`` for the exactly-linear demo data, or ``"realistic"`` for
+            the hard-mode data (non-linear, autocorrelated, collinear, with gaps).
 
     Returns:
         Tuple of ``(plant_energy_path, motors_path)``.
+
+    Raises:
+        ValueError: If ``mode`` is not ``"clean"`` or ``"realistic"``.
     """
+    if mode not in ("clean", "realistic"):
+        raise ValueError(f"mode must be 'clean' or 'realistic', got {mode!r}.")
+
     data_dir = data_dir or config.DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
     plant_path = data_dir / config.PLANT_ENERGY_CSV.name
     motors_path = data_dir / config.MOTORS_CSV.name
-    generate_synthetic_plant_data().to_csv(plant_path, index=False)
+    generator = generate_realistic_plant_data if mode == "realistic" else generate_synthetic_plant_data
+    generator().to_csv(plant_path, index=False)
     generate_motor_register().to_csv(motors_path, index=False)
     return plant_path, motors_path
 

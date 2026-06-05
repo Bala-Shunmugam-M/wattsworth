@@ -49,12 +49,18 @@ def main() -> None:
     plant, motors = _load()
 
     if plant is None:
-        st.warning(
-            "No dataset found. Generate credible synthetic plant data to explore the app."
+        st.warning("No dataset found. Generate plant data to explore the app.")
+        mode = st.radio(
+            "Data mode",
+            ["Clean demo", "Realistic (hard-mode)"],
+            horizontal=True,
+            help="Clean = exactly-linear demo (every method looks perfect). "
+            "Realistic = non-linear, autocorrelated, collinear drivers + missing days, "
+            "so you can see the engine degrade honestly (lower R², Durbin-Watson < 2).",
         )
         if st.button("⚙️ Generate sample data", type="primary"):
-            with st.spinner("Generating synthetic plant + motor data…"):
-                data.save_synthetic_data()
+            with st.spinner("Generating plant + motor data…"):
+                data.save_synthetic_data(mode="realistic" if mode.startswith("Realistic") else "clean")
             st.cache_data.clear()
             st.cache_resource.clear()
             st.rerun()
@@ -84,6 +90,19 @@ def main() -> None:
 
     with st.expander("Preview raw data"):
         st.dataframe(plant.head(50), use_container_width=True)
+
+    with st.expander("⚙️ Regenerate / switch data mode"):
+        regen_mode = st.radio(
+            "Data mode", ["Clean demo", "Realistic (hard-mode)"], horizontal=True, key="regen_mode",
+            help="Realistic mode adds non-linearity, autocorrelated noise, collinear drivers, "
+            "and missing days — the engine then reports a modest R² and a Durbin-Watson < 2.",
+        )
+        if st.button("Regenerate data"):
+            with st.spinner("Regenerating…"):
+                data.save_synthetic_data(mode="realistic" if regen_mode.startswith("Realistic") else "clean")
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.rerun()
 
 
 if __name__ == "__main__":
