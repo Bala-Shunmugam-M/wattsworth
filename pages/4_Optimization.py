@@ -54,8 +54,33 @@ t2.metric("Energy saved", f"{total_kwh / 1000:,.1f} MWh/yr")
 t3.metric("CO₂ avoided", f"{total_co2:,.1f} t/yr")
 t4.metric("Total capex", f"{config.CURRENCY_SYMBOL}{total_capex / 1e5:,.1f} L")
 
+# --- Budget-constrained optimisation (0/1 knapsack) --------------------------
+st.subheader("3 · Best plan under a capex budget")
+st.caption(
+    "A real optimisation, not just a ranking: the highest-value subset of actions whose "
+    "total capital cost fits your budget (0/1 knapsack)."
+)
+bc1, bc2 = st.columns([2, 1])
+max_capex = max(int(total_capex), 1)
+budget = bc1.slider("Capex budget (₹)", 0, max_capex, max_capex // 2, step=10_000)
+objective_label = bc2.radio("Maximise", ["₹ saved", "tCO₂ avoided"], horizontal=False)
+objective = "tonnes_co2_avoided" if objective_label.startswith("tCO") else "inr_saved"
+
+plan = optimize.optimize_under_budget(actions, float(budget), objective=objective)
+p1, p2, p3, p4 = st.columns(4)
+p1.metric("Plan saving", f"{config.CURRENCY_SYMBOL}{plan.total_inr / 1e5:,.1f} L/yr")
+p2.metric("Plan energy", f"{plan.total_kwh / 1000:,.1f} MWh/yr")
+p3.metric("Plan CO₂", f"{plan.total_tco2:,.1f} t/yr")
+p4.metric("Capex used", f"{config.CURRENCY_SYMBOL}{plan.total_capex / 1e5:,.1f} / {budget / 1e5:,.1f} L")
+if plan.selected:
+    st.markdown("**Selected actions:**")
+    for a in plan.selected:
+        st.markdown(f"- ✅ {a.action}")
+else:
+    st.caption("No action fits this budget — increase it to fund the cheapest opportunity.")
+
 # --- Ranked action cards -----------------------------------------------------
-st.subheader("3 · Ranked actions")
+st.subheader("4 · All ranked actions")
 _ICON = {"motor": "🔌", "load_shift": "⏱️", "power_factor": "🔋"}
 for i, a in enumerate(actions, start=1):
     with st.container(border=True):
@@ -76,7 +101,7 @@ for i, a in enumerate(actions, start=1):
             k3.metric("tCO₂/yr", f"{a.tonnes_co2_avoided:,.1f}")
 
 # --- Motor right-size table --------------------------------------------------
-st.subheader("4 · Motor right-sizing detail")
+st.subheader("5 · Motor right-sizing detail")
 rows = []
 for _, m in motors.iterrows():
     lf = float(m["load_factor"])

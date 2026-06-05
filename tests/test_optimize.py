@@ -134,3 +134,63 @@ def test_recommend_all_combines_and_ranks(motors: pd.DataFrame, plant: pd.DataFr
     # Ranked descending by ₹.
     savings = [a.inr_saved for a in actions]
     assert savings == sorted(savings, reverse=True)
+
+
+# --- Capex-budget knapsack ---------------------------------------------------
+def test_knapsack_respects_budget(motors: pd.DataFrame, plant: pd.DataFrame) -> None:
+    """The selected plan never exceeds the capex budget."""
+    actions = optimize.recommend_all(motors, plant)
+    budget = 120_000.0
+    plan = optimize.optimize_under_budget(actions, budget_inr=budget)
+    assert plan.total_capex <= budget
+    assert plan.total_inr == pytest.approx(sum(a.inr_saved for a in plan.selected))
+
+
+def test_knapsack_is_optimal_not_just_greedy() -> None:
+    """Knapsack picks the highest-value affordable subset, not the cheapest items."""
+    actions = [
+        optimize.OptimizationAction("cheap-low", "motor", inr_saved=10.0, capex_inr=40.0),
+        optimize.OptimizationAction("mid", "motor", inr_saved=70.0, capex_inr=50.0),
+        optimize.OptimizationAction("pricey-high", "motor", inr_saved=90.0, capex_inr=60.0),
+    ]
+    plan = optimize.optimize_under_budget(actions, budget_inr=100.0)
+    # Optimal under budget 100: mid(50)+cheap(40)=90 vs pricey(60)+cheap(40)=100 -> value 70+10=80 vs 90+10=100
+    assert plan.total_capex <= 100.0
+    assert plan.total_inr == pytest.approx(100.0)
+    assert {a.action for a in plan.selected} == {"pricey-high", "cheap-low"}
+
+
+def test_knapsack_zero_budget_keeps_only_free_actions(plant: pd.DataFrame) -> None:
+    """With no capex, only zero-capex actions (e.g. ToU shifting) can be selected."""
+    actions = [
+        optimize.OptimizationAction("free", "load_shift", inr_saved=500.0, capex_inr=0.0),
+        optimize.OptimizationAction("paid", "motor", inr_saved=900.0, capex_inr=50_000.0),
+    ]
+    plan = optimize.optimize_under_budget(actions, budget_inr=0.0)
+    assert [a.action for a in plan.selected] == ["free"]
+
+
+def test_knapsack_can_maximise_co2() -> None:
+    """The objective can be tCO2 avoided instead of rupees."""
+    actions = [
+        optimize.OptimizationAction("a", "motor", inr_saved=100.0, tonnes_co2_avoided=1.0, capex_inr=50.0),
+        optimize.OptimizationAction("b", "motor", inr_saved=10.0, tonnes_co2_avoided=9.0, capex_inr=50.0),
+    ]
+    plan = optimize.optimize_under_budget(actions, budget_inr=50.0, objective="tonnes_co2_avoided")
+    assert [a.action for a in plan.selected] == ["b"]
+
+
+def test_knapsack_bad_objective_raises() -> None:
+    with pytest.raises(ValueError, match="objective must be"):
+        optimize.optimize_under_budget([], budget_inr=100.0, objective="payback_months")
+
+
+def test_motor_sizing_uses_measured_efficiency(motors: pd.DataFrame) -> None:
+    """Motor savings reflect the register's measured efficiency, not only the curve."""
+    bumped = motors.copy()
+    # Drop one under-loaded motor's measured efficiency sharply -> bigger saving.
+    mask = bumped["load_factor"] < config.UNDERLOADED_LF
+    base = optimize.motor_right_sizing(motors)
+    bumped.loc[mask, "efficiency_pct"] = 70.0
+    worse = optimize.motor_right_sizing(bumped)
+    assert sum(a.kwh_saved for a in worse) > sum(a.kwh_saved for a in base)

@@ -14,8 +14,9 @@ Pure Python — no Streamlit imports.
 """
 from __future__ import annotations
 
+import itertools
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -99,7 +100,12 @@ def motor_right_sizing(
 
         measured_kw = float(m["measured_kw"])
         run_hours = float(m.get("run_hours_per_day", 20.0))
-        eff_old = motor_efficiency(lf)
+        # Prefer the register's measured current efficiency; fall back to the curve.
+        measured_eff = m.get("efficiency_pct")
+        if measured_eff is not None and not pd.isna(measured_eff) and 50.0 < float(measured_eff) < 100.0:
+            eff_old = float(measured_eff) / 100.0
+        else:
+            eff_old = motor_efficiency(lf)
         eff_new = motor_efficiency(config.MOTOR_TARGET_LOAD)
 
         power_saved_kw = measured_kw * (1.0 - eff_old / eff_new)
@@ -265,6 +271,93 @@ def power_factor_correction(
 def rank_actions(actions: list[OptimizationAction]) -> list[OptimizationAction]:
     """Return ``actions`` sorted by INR saved, descending."""
     return sorted(actions, key=lambda a: a.inr_saved, reverse=True)
+
+
+@dataclass
+class OptimizationPlan:
+    """The optimal subset of actions under a capital budget.
+
+    Attributes:
+        selected: Chosen actions (the optimal subset).
+        objective: Which field was maximised ('inr_saved' or 'tonnes_co2_avoided').
+        total_inr: Annual ₹ saving of the selected actions.
+        total_kwh: Annual kWh saving of the selected actions.
+        total_tco2: Annual CO2 avoided by the selected actions.
+        total_capex: Capital spent (≤ budget).
+        budget_inr: The capital budget the selection respected.
+    """
+
+    selected: list[OptimizationAction] = field(default_factory=list)
+    objective: str = "inr_saved"
+    total_inr: float = 0.0
+    total_kwh: float = 0.0
+    total_tco2: float = 0.0
+    total_capex: float = 0.0
+    budget_inr: float = 0.0
+
+
+def optimize_under_budget(
+    actions: list[OptimizationAction],
+    budget_inr: float,
+    objective: str = "inr_saved",
+) -> OptimizationPlan:
+    """Select the subset of actions that maximises ``objective`` within ``budget_inr``.
+
+    This is a 0/1 knapsack: capex is the weight, ``objective`` (annual ₹ saved or
+    tCO₂ avoided) is the value, and ``budget_inr`` is the capacity. It is solved
+    exactly by enumeration for small action sets (the realistic case here), and by
+    a value-density greedy heuristic if there are too many actions to enumerate.
+
+    Args:
+        actions: Candidate actions (e.g. from :func:`recommend_all`).
+        budget_inr: Maximum total capex allowed.
+        objective: Attribute to maximise — ``"inr_saved"`` or ``"tonnes_co2_avoided"``.
+
+    Returns:
+        An :class:`OptimizationPlan` describing the optimal selection.
+
+    Raises:
+        ValueError: If ``objective`` is not a maximisable action attribute or the
+            budget is negative.
+    """
+    if objective not in ("inr_saved", "tonnes_co2_avoided"):
+        raise ValueError("objective must be 'inr_saved' or 'tonnes_co2_avoided'.")
+    if budget_inr < 0:
+        raise ValueError("budget_inr must be non-negative.")
+
+    affordable = [a for a in actions if a.capex_inr <= budget_inr]
+
+    if len(affordable) <= 18:
+        best: tuple[OptimizationAction, ...] = ()
+        best_value = -1.0
+        for r in range(len(affordable) + 1):
+            for combo in itertools.combinations(affordable, r):
+                if sum(a.capex_inr for a in combo) <= budget_inr:
+                    value = sum(getattr(a, objective) for a in combo)
+                    if value > best_value:
+                        best_value, best = value, combo
+        selected = list(best)
+    else:  # greedy fallback by value-per-capex (zero-capex actions first)
+        ranked = sorted(
+            affordable,
+            key=lambda a: (getattr(a, objective) / a.capex_inr) if a.capex_inr > 0 else float("inf"),
+            reverse=True,
+        )
+        selected, spent = [], 0.0
+        for a in ranked:
+            if spent + a.capex_inr <= budget_inr:
+                selected.append(a)
+                spent += a.capex_inr
+
+    return OptimizationPlan(
+        selected=rank_actions(selected),
+        objective=objective,
+        total_inr=sum(a.inr_saved for a in selected),
+        total_kwh=sum(a.kwh_saved for a in selected),
+        total_tco2=sum(a.tonnes_co2_avoided for a in selected),
+        total_capex=sum(a.capex_inr for a in selected),
+        budget_inr=budget_inr,
+    )
 
 
 def recommend_all(
