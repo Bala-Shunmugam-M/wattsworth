@@ -1,5 +1,8 @@
 # ⚡ WattsWorth — Industrial Energy Performance & Decarbonization Engine
 
+[![CI](https://github.com/Bala-Shunmugam-M/wattsworth/actions/workflows/ci.yml/badge.svg)](https://github.com/Bala-Shunmugam-M/wattsworth/actions/workflows/ci.yml)
+&nbsp;**🔗 Live demo:** https://wattsworth-4em4jgncpi8gh2yt2rkayk.streamlit.app/
+
 An end-to-end energy-analytics application for a heavy-industry plant (modelled on a
 100 TPD coal-based DRI / sponge-iron unit). It implements the methods real energy
 managers use — **ISO 50001** baselining and **IPMVP Option C** measurement &
