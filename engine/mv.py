@@ -34,6 +34,11 @@ if TYPE_CHECKING:
 class SavingsSummary:
     """Headline M&V results for a reporting period.
 
+    The significance test corrects for serial correlation: daily avoided-energy
+    values are autocorrelated, so a naive i.i.d. t-test overstates confidence. We
+    deflate the sample size to an *effective* count ``n_eff = n·(1-ρ)/(1+ρ)`` using
+    the lag-1 autocorrelation ρ, then test against ``t`` with ``n_eff - 1`` df.
+
     Attributes:
         avoided_kwh: Total avoided energy over the reporting period.
         pct_saving: Saving as a fraction of expected (baseline) energy.
@@ -43,8 +48,10 @@ class SavingsSummary:
         annual_kwh: Saving projected to a full year (kWh).
         annual_inr: Saving projected to a full year (INR).
         annual_tco2: CO2 avoided projected to a full year (tonnes).
-        t_stat: One-sided t-statistic testing mean daily avoided energy > 0.
-        p_value: p-value of that test (smaller = more confident the saving is real).
+        lag1_autocorr: Lag-1 autocorrelation of daily avoided energy (ρ).
+        n_effective: Autocorrelation-adjusted effective sample size.
+        t_stat: One-sided t-statistic (using the effective sample size).
+        p_value: Autocorrelation-corrected one-sided p-value (mean daily saving > 0).
         is_significant: True if ``p_value < 0.05``.
     """
 
@@ -56,6 +63,8 @@ class SavingsSummary:
     annual_kwh: float = 0.0
     annual_inr: float = 0.0
     annual_tco2: float = 0.0
+    lag1_autocorr: float = float("nan")
+    n_effective: float = float("nan")
     t_stat: float = float("nan")
     p_value: float = float("nan")
     is_significant: bool = False
@@ -171,12 +180,10 @@ def summarize_savings(
     annual_kwh = daily * 365.0
 
     # Is the daily saving significantly greater than zero, or just noise?
+    # Correct for serial correlation (daily savings are autocorrelated), which a
+    # naive i.i.d. t-test would ignore and so overstate significance.
     daily_values = avoided["avoided_kwh"].to_numpy(dtype=float)
-    if days >= 2 and np.std(daily_values) > 0:
-        t_stat, p_value = stats.ttest_1samp(daily_values, 0.0, alternative="greater")
-        t_stat, p_value = float(t_stat), float(p_value)
-    else:
-        t_stat, p_value = float("nan"), float("nan")
+    rho, n_eff, t_stat, p_value = _autocorrelation_corrected_test(daily_values)
 
     return SavingsSummary(
         avoided_kwh=total_avoided,
@@ -187,7 +194,38 @@ def summarize_savings(
         annual_kwh=annual_kwh,
         annual_inr=economics.energy_cost(annual_kwh, tariff),
         annual_tco2=carbon.co2_emissions_tonnes(annual_kwh, factor),
+        lag1_autocorr=rho,
+        n_effective=n_eff,
         t_stat=t_stat,
         p_value=p_value,
         is_significant=bool(p_value < 0.05) if not np.isnan(p_value) else False,
     )
+
+
+def _autocorrelation_corrected_test(
+    daily_values: np.ndarray,
+) -> tuple[float, float, float, float]:
+    """One-sided t-test that mean daily saving > 0, corrected for autocorrelation.
+
+    Returns ``(lag1_autocorr, n_effective, t_stat, p_value)``. The effective sample
+    size ``n_eff = n·(1-ρ)/(1+ρ)`` deflates the i.i.d. count by the lag-1
+    autocorrelation ρ, and the t-test uses ``n_eff - 1`` degrees of freedom.
+    """
+    values = np.asarray(daily_values, dtype=float)
+    n = values.size
+    if n < 3 or np.std(values) == 0 or np.isnan(values).any():
+        return float("nan"), float("nan"), float("nan"), float("nan")
+
+    mean = float(values.mean())
+    std = float(values.std(ddof=1))
+    centred = values - mean
+    denom = float(np.sum(centred**2))
+    rho = float(np.sum(centred[:-1] * centred[1:]) / denom) if denom > 0 else 0.0
+    rho = float(min(max(rho, -0.99), 0.99))
+
+    n_eff = n * (1.0 - rho) / (1.0 + rho)
+    n_eff = float(min(max(n_eff, 2.0), float(n)))
+
+    t_stat = mean / (std / np.sqrt(n_eff))
+    p_value = float(stats.t.sf(t_stat, df=n_eff - 1.0))  # one-sided: mean > 0
+    return rho, n_eff, float(t_stat), p_value

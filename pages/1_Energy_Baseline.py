@@ -8,6 +8,7 @@ baseline window is the energy saving that build step 3 (M&V) will quantify in
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -83,6 +84,23 @@ else:
     st.warning(
         "⚠️ Marginal fit. Try a cleaner / single-regime window — e.g. end the baseline "
         "before the 2025-09-01 efficiency project."
+    )
+
+with st.expander("Regression diagnostics — ISO 50001 / ASHRAE G14 rigor"):
+    d1, d2, d3, d4 = st.columns(4)
+    oos = "—" if model.cv_rmse_oos is None else f"{model.cv_rmse_oos * 100:.1f}%"
+    d1.metric("Out-of-sample CV(RMSE)", oos,
+              help="Hold-out predictive error (last 20% of the window). The honest metric — "
+                   "in-sample CV(RMSE) is optimistic.")
+    d2.metric("Durbin–Watson", f"{model.durbin_watson:.2f}",
+              help="≈2 = no residual autocorrelation; <1.5 inflates significance.")
+    d3.metric("Max VIF", "—" if np.isnan(model.max_vif) else f"{model.max_vif:.1f}",
+              help=">10 indicates problematic multicollinearity among drivers.")
+    d4.metric("Breusch–Pagan p", "—" if np.isnan(model.bp_pvalue) else f"{model.bp_pvalue:.2f}",
+              help="<0.05 = heteroskedastic (non-constant error variance).")
+    st.caption(
+        "These check the regression's *assumptions*, not just its fit — exactly what an "
+        "M&V auditor scrutinises before accepting a baseline."
     )
 
 with st.expander("Model details — coefficients & dropped drivers"):

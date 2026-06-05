@@ -85,14 +85,19 @@ k2.metric("Cost saved", f"{config.CURRENCY_SYMBOL}{summary.inr_saved / 1e5:,.2f}
 k3.metric("CO₂ avoided", f"{summary.tonnes_co2_avoided:,.0f} t")
 k4.metric("Avg daily saving", f"{summary.avoided_kwh / max(summary.days, 1):,.0f} kWh")
 
+_sig_detail = (
+    f"autocorrelation-corrected one-sided t-test: t={summary.t_stat:.1f}, "
+    f"p={summary.p_value:.1e}, ρ={summary.lag1_autocorr:.2f}, "
+    f"effective N={summary.n_effective:.0f} of {summary.days} days"
+)
 if summary.is_significant:
     st.success(
-        f"✅ **Statistically significant saving** (one-sided t-test: t={summary.t_stat:.1f}, "
-        f"p={summary.p_value:.1e}). This is a real reduction, not noise."
+        f"✅ **Statistically significant saving** ({_sig_detail}). A real reduction, not noise — "
+        "and the test accounts for serial correlation, which most M&V tools ignore."
     )
 else:
     st.warning(
-        f"⚠️ Saving is **not** statistically significant (p={summary.p_value:.2f}). "
+        f"⚠️ Saving is **not** statistically significant ({_sig_detail}). "
         "Treat with caution — it may be within baseline noise."
     )
 

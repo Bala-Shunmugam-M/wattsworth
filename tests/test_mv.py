@@ -158,3 +158,30 @@ def test_summarize_empty_raises() -> None:
     """summarize_savings rejects an empty frame."""
     with pytest.raises(ValueError, match="empty"):
         mv.summarize_savings(pd.DataFrame(columns=["avoided_kwh", "expected_kwh"]))
+
+
+# --- Autocorrelation-corrected significance ----------------------------------
+def test_significance_reports_autocorrelation(summary: mv.SavingsSummary) -> None:
+    """The summary exposes lag-1 autocorrelation and an effective sample size."""
+    assert -1.0 <= summary.lag1_autocorr <= 1.0
+    assert 2.0 <= summary.n_effective <= summary.days
+    # Clean synthetic savings are near-i.i.d., so effective N stays close to N.
+    assert abs(summary.lag1_autocorr) < 0.25
+
+
+def test_autocorrelation_shrinks_effective_n() -> None:
+    """Strongly autocorrelated savings yield n_eff far below n (less confidence)."""
+    # A smooth ramp is highly positively autocorrelated.
+    ramp = np.linspace(50.0, 60.0, 120)
+    df = pd.DataFrame(
+        {
+            "date": pd.date_range("2025-09-01", periods=120, freq="D"),
+            "actual_kwh": 1000.0 - ramp,
+            "expected_kwh": [1000.0] * 120,
+            "avoided_kwh": ramp,
+            "cumulative_avoided_kwh": np.cumsum(ramp),
+        }
+    )
+    s = mv.summarize_savings(df)
+    assert s.lag1_autocorr > 0.8
+    assert s.n_effective < 0.25 * s.days

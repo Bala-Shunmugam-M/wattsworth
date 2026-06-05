@@ -151,3 +151,23 @@ def test_no_drivers_raises(plant: pd.DataFrame) -> None:
     """An empty driver list raises ValueError."""
     with pytest.raises(ValueError, match="At least one"):
         baseline.fit_baseline(plant, drivers=[])
+
+
+# --- Diagnostics & out-of-sample validation ----------------------------------
+def test_diagnostics_populated(model: baseline.BaselineModel) -> None:
+    """Durbin-Watson, VIF, Breusch-Pagan, and OOS CV(RMSE) are reported."""
+    assert 0.0 < model.durbin_watson < 4.0          # valid DW range
+    assert model.max_vif < 5.0                       # 3 independent drivers => low VIF
+    assert np.isnan(model.bp_pvalue) or (0.0 <= model.bp_pvalue <= 1.0)
+
+
+def test_out_of_sample_cv_rmse(model: baseline.BaselineModel) -> None:
+    """A chronological hold-out CV(RMSE) is computed and is IPMVP-acceptable on clean data."""
+    assert model.cv_rmse_oos is not None
+    assert 0.0 < model.cv_rmse_oos < 0.20
+
+
+def test_oos_can_be_disabled(clean: pd.DataFrame) -> None:
+    """validate_oos=False skips the hold-out computation."""
+    m = baseline.fit_baseline(clean, validate_oos=False)
+    assert m.cv_rmse_oos is None
