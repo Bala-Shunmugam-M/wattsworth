@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from engine import baseline, carbon, config, data, economics, ingestion
+from readiness import assess_readiness
 
 st.set_page_config(
     page_title="WattsWorth — Industrial Energy Intelligence",
@@ -132,6 +133,20 @@ def main() -> None:
                 for msg in report.messages:
                     st.caption("• " + msg)
                 if report.ok:
+                    rr = assess_readiness(cleaned)
+                    _icon = {"READY": "✅", "MARGINAL": "⚠️", "NOT_READY": "⛔"}.get(rr.verdict, "•")
+                    st.markdown(f"### {_icon} M&V Readiness: **{rr.verdict}** &nbsp; ({rr.score:.0f}/100)")
+                    st.caption(rr.headline)
+                    st.caption(rr.summary)
+                    with st.expander("Readiness checks (what each means + what to do)"):
+                        st.dataframe(
+                            pd.DataFrame([
+                                {"Check": c.name, "Status": c.status,
+                                 "What it means": c.detail, "Action": c.action}
+                                for c in rr.checks
+                            ]),
+                            use_container_width=True, hide_index=True,
+                        )
                     if st.button("Use this dataset", type="primary"):
                         cleaned.to_csv(config.PLANT_ENERGY_CSV, index=False)
                         st.cache_data.clear()
