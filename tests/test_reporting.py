@@ -217,6 +217,40 @@ def test_format_na_or() -> None:
     assert fmt.na_or(1.0, "{:.1f}") == "1.0"
 
 
+def test_format_inr_lakhs_edge_values() -> None:
+    assert fmt.inr_lakhs(0) == "₹0.00 L"
+    assert fmt.inr_lakhs(-150_000) == "₹-1.50 L"
+    assert fmt.inr_lakhs(12_345_678) == "₹123.46 L"
+
+
+def test_format_pct_zero_and_negative() -> None:
+    assert fmt.pct(0) == "0.0%"
+    assert fmt.pct(-0.05) == "-5.0%"
+
+
+def test_coefficient_equation_only_const() -> None:
+    """All-drivers-dropped baseline renders just the intercept, no trailing terms."""
+    assert fmt.coefficient_equation({"const": 100.0}) == "energy_kwh = 100.0"
+
+
+# --- Locale / glyph safety (PDF must not emit a raw rupee glyph) --------------
+def test_pdf_uses_ascii_currency_not_rupee_glyph() -> None:
+    """Helvetica has no ₹ glyph; the PDF must use 'INR' and never the raw symbol."""
+    text = _pdf_text(build_mv_report_pdf(make_summary(), make_model(), make_avoided(), make_meta()))
+    assert "₹" not in text  # no raw ₹
+    assert "INR" in text
+
+
+def test_xlsx_keeps_rupee_symbol_ok() -> None:
+    """Excel handles Unicode, so the ₹ in formatted strings is fine there (sanity)."""
+    # Summary stores INR as a raw number; just assert the workbook builds and the
+    # numeric cost cell is numeric (not a ₹-prefixed string).
+    cells = _summary_cells(
+        build_mv_report_xlsx(make_summary(), make_model(), make_avoided(), make_meta()), "Summary"
+    )
+    assert isinstance(cells["Cost saved (INR)"], (int, float))
+
+
 # --- E. ASHRAE verdict logic -------------------------------------------------
 def test_ashrae_prefers_oos() -> None:
     val, which = verdicts.ashrae_cvrmse_used(make_model(cv_rmse=0.10, cv_rmse_oos=0.15))

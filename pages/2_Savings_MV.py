@@ -153,30 +153,43 @@ st.caption(
     "verdict, the autocorrelation-corrected significance, the CUSUM chart, and a methodology "
     "& limitations appendix. This is the deliverable a pilot is judged on."
 )
-report_meta = ReportMeta(
-    facility_name="Demo Plant",
-    report_id=f"WW-MV-{intervention:%Y-%m}",
-    prepared_by="WattsWorth",
-    baseline_start=str(baseline_start),
-    baseline_end=baseline_end,
-    reporting_start=str(avoided["date"].min().date()),
-    reporting_end=str(avoided["date"].max().date()),
-    tariff_inr_per_kwh=tariff,
-    emission_factor=emission,
-    generated_at=datetime.now().isoformat(timespec="seconds"),
-)
-try:
-    pdf_bytes = build_mv_report_pdf(summary, model, avoided, report_meta)
-    xlsx_bytes = build_mv_report_xlsx(summary, model, avoided, report_meta)
+# Generate only on explicit click (and cache in session_state keyed on the inputs),
+# so report building is decoupled from every slider rerun.
+_report_sig = (str(baseline_start), str(intervention), float(tariff), float(emission))
+if st.button("📄 Prepare audit report (PDF + Excel)", type="primary"):
+    report_meta = ReportMeta(
+        facility_name="Demo Plant",
+        report_id=f"WW-MV-{intervention:%Y-%m}",
+        prepared_by="WattsWorth",
+        baseline_start=str(baseline_start),
+        baseline_end=baseline_end,
+        reporting_start=str(avoided["date"].min().date()),
+        reporting_end=str(avoided["date"].max().date()),
+        tariff_inr_per_kwh=tariff,
+        emission_factor=emission,
+        generated_at=datetime.now().isoformat(timespec="seconds"),
+    )
+    try:
+        st.session_state["mv_report"] = {
+            "sig": _report_sig,
+            "pdf": build_mv_report_pdf(summary, model, avoided, report_meta),
+            "xlsx": build_mv_report_xlsx(summary, model, avoided, report_meta),
+        }
+    except ValueError as exc:
+        st.session_state.pop("mv_report", None)
+        st.warning(f"Report unavailable: {exc}")
+
+_report = st.session_state.get("mv_report")
+if _report and _report["sig"] == _report_sig:
     rc1, rc2 = st.columns(2)
     rc1.download_button(
-        "⬇️ M&V report (PDF)", pdf_bytes, file_name="wattsworth_mv_report.pdf",
+        "⬇️ M&V report (PDF)", _report["pdf"], file_name="wattsworth_mv_report.pdf",
         mime="application/pdf", use_container_width=True,
     )
     rc2.download_button(
-        "⬇️ M&V workbook (Excel)", xlsx_bytes, file_name="wattsworth_mv_report.xlsx",
+        "⬇️ M&V workbook (Excel)", _report["xlsx"], file_name="wattsworth_mv_report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
-except ValueError as exc:
-    st.warning(f"Report unavailable: {exc}")
+elif _report:
+    st.caption("Inputs changed since the report was generated — click to regenerate.")

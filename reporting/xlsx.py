@@ -17,7 +17,12 @@ if TYPE_CHECKING:
 
 
 def _na(value: object) -> object:
-    """Render None/NaN as 'n/a' for cells; pass numbers through unchanged."""
+    """Render None/NaN as 'n/a' for cells; pass numbers through unchanged.
+
+    Distinct from ``format.na_or`` by design: that helper always returns a string,
+    but here numeric values must stay numeric so the XLSX round-trip tests (and any
+    downstream spreadsheet formulas) read real numbers, not formatted text.
+    """
     if value is None:
         return "n/a"
     if isinstance(value, float) and math.isnan(value):
