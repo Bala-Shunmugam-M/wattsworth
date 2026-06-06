@@ -65,6 +65,7 @@ class BaselineModel:
     cv_rmse_oos: float | None = None
     n_obs: int = 0
     dropped: list[str] = field(default_factory=list)
+    baseline_period: tuple[str, str] | None = None
     durbin_watson: float = float("nan")
     max_vif: float = float("nan")
     bp_pvalue: float = float("nan")
@@ -261,6 +262,15 @@ def fit_baseline(
 
     cv_rmse_oos = _out_of_sample_cv_rmse(work, target, retained) if validate_oos else None
 
+    # Record the baseline window used, for the audit trail / report provenance.
+    if baseline_period is not None:
+        recorded_period: tuple[str, str] | None = (str(baseline_period[0]), str(baseline_period[1]))
+    elif "date" in fit_df.columns:
+        _dates = pd.to_datetime(fit_df["date"])
+        recorded_period = (str(_dates.min().date()), str(_dates.max().date()))
+    else:
+        recorded_period = None
+
     return BaselineModel(
         drivers=retained,
         coefficients={k: float(v) for k, v in results.params.items()},
@@ -269,6 +279,7 @@ def fit_baseline(
         cv_rmse_oos=cv_rmse_oos,
         n_obs=int(results.nobs),
         dropped=dropped,
+        baseline_period=recorded_period,
         durbin_watson=dw,
         max_vif=max_vif,
         bp_pvalue=bp_pvalue,

@@ -171,3 +171,19 @@ def test_oos_can_be_disabled(clean: pd.DataFrame) -> None:
     """validate_oos=False skips the hold-out computation."""
     m = baseline.fit_baseline(clean, validate_oos=False)
     assert m.cv_rmse_oos is None
+
+
+# --- Baseline period provenance (for audit reporting) ------------------------
+def test_baseline_period_recorded_when_given(plant: pd.DataFrame) -> None:
+    """An explicit baseline_period is stored on the model for the audit trail."""
+    start = plant["date"].min().strftime("%Y-%m-%d")
+    m = baseline.fit_baseline(plant, baseline_period=(start, _BASELINE_END))
+    assert m.baseline_period == (start, _BASELINE_END)
+
+
+def test_baseline_period_defaults_to_data_range(clean: pd.DataFrame) -> None:
+    """With no explicit period, the actual data window used is recorded."""
+    m = baseline.fit_baseline(clean)
+    assert m.baseline_period is not None
+    assert m.baseline_period[0] == str(clean["date"].min().date())
+    assert m.baseline_period[1] == str(clean["date"].max().date())

@@ -185,3 +185,35 @@ def test_autocorrelation_shrinks_effective_n() -> None:
     s = mv.summarize_savings(df)
     assert s.lag1_autocorr > 0.8
     assert s.n_effective < 0.25 * s.days
+
+
+# --- Savings confidence interval (IPMVP +/- band) ----------------------------
+def test_savings_confidence_interval_brackets_estimate(summary: mv.SavingsSummary) -> None:
+    """The CI brackets the point estimate at the stated confidence level."""
+    assert summary.ci_confidence == 0.90
+    assert summary.avoided_kwh_ci_low < summary.avoided_kwh < summary.avoided_kwh_ci_high
+
+
+def test_confidence_interval_lower_bound_positive_when_strongly_significant(
+    summary: mv.SavingsSummary,
+) -> None:
+    """A strong ~6% saving over ~270 days has even its lower CI bound above zero."""
+    assert summary.avoided_kwh_ci_low > 0
+
+
+def test_confidence_interval_widens_with_autocorrelation() -> None:
+    """Stronger serial correlation (lower effective N) yields a wider CI band."""
+    # Highly autocorrelated savings -> small n_eff -> wide band.
+    ramp = np.linspace(50.0, 60.0, 120)
+    corr = pd.DataFrame(
+        {
+            "date": pd.date_range("2025-09-01", periods=120, freq="D"),
+            "actual_kwh": 1000.0 - ramp,
+            "expected_kwh": [1000.0] * 120,
+            "avoided_kwh": ramp,
+            "cumulative_avoided_kwh": np.cumsum(ramp),
+        }
+    )
+    s = mv.summarize_savings(corr)
+    band = s.avoided_kwh_ci_high - s.avoided_kwh_ci_low
+    assert band > 0

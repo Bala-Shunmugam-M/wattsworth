@@ -68,6 +68,9 @@ class SavingsSummary:
     t_stat: float = float("nan")
     p_value: float = float("nan")
     is_significant: bool = False
+    avoided_kwh_ci_low: float = float("nan")
+    avoided_kwh_ci_high: float = float("nan")
+    ci_confidence: float = 0.90
 
 
 def compute_savings(
@@ -184,6 +187,8 @@ def summarize_savings(
     # naive i.i.d. t-test would ignore and so overstate significance.
     daily_values = avoided["avoided_kwh"].to_numpy(dtype=float)
     rho, n_eff, t_stat, p_value = _autocorrelation_corrected_test(daily_values)
+    ci_confidence = 0.90
+    ci_low, ci_high = _savings_confidence_interval(daily_values, n_eff, days, ci_confidence)
 
     return SavingsSummary(
         avoided_kwh=total_avoided,
@@ -199,7 +204,33 @@ def summarize_savings(
         t_stat=t_stat,
         p_value=p_value,
         is_significant=bool(p_value < 0.05) if not np.isnan(p_value) else False,
+        avoided_kwh_ci_low=ci_low,
+        avoided_kwh_ci_high=ci_high,
+        ci_confidence=ci_confidence,
     )
+
+
+def _savings_confidence_interval(
+    daily_values: np.ndarray,
+    n_eff: float,
+    days: int,
+    confidence: float = 0.90,
+) -> tuple[float, float]:
+    """Return a two-sided confidence interval for *total* avoided energy.
+
+    Uses the autocorrelation-adjusted effective sample size so the band widens with
+    serial correlation: margin = t(conf, n_eff-1) * std/sqrt(n_eff) per day, scaled
+    to the reporting period. Returns ``(nan, nan)`` when the inputs are degenerate.
+    """
+    values = np.asarray(daily_values, dtype=float)
+    n = values.size
+    if n < 3 or np.isnan(n_eff) or n_eff <= 1.0 or np.std(values) == 0 or np.isnan(values).any():
+        return float("nan"), float("nan")
+    std = float(values.std(ddof=1))
+    t_crit = float(stats.t.ppf(1.0 - (1.0 - confidence) / 2.0, df=n_eff - 1.0))
+    margin_total = t_crit * (std / np.sqrt(n_eff)) * days
+    total = float(values.sum())
+    return total - margin_total, total + margin_total
 
 
 def _autocorrelation_corrected_test(
