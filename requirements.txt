@@ -6,4 +6,8 @@ numpy==2.4.6
 statsmodels==0.14.6
 scikit-learn==1.9.0
 plotly==6.8.0
+reportlab==4.5.1
+matplotlib==3.10.9
+openpyxl==3.1.5
 pytest==9.0.3
+pypdf==6.13.0

@@ -6,11 +6,15 @@ year, and states whether the saving is statistically significant.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from engine import baseline, config, data, mv
+from reporting import build_mv_report_pdf, build_mv_report_xlsx
+from reporting.meta import ReportMeta
 
 st.set_page_config(page_title="Savings M&V", page_icon="✅", layout="wide")
 
@@ -141,3 +145,38 @@ with st.expander("Reporting-period detail — actual vs. expected"):
                        legend=dict(orientation="h", y=1.02, x=1, xanchor="right", yanchor="bottom"))
     st.plotly_chart(fig2, use_container_width=True)
     st.dataframe(avoided.tail(20), use_container_width=True, hide_index=True)
+
+# --- Download audit report ---------------------------------------------------
+st.subheader("5 · Download audit report")
+st.caption(
+    "Board-ready, audit-grade: baseline equation + diagnostics, the ASHRAE G14 acceptance "
+    "verdict, the autocorrelation-corrected significance, the CUSUM chart, and a methodology "
+    "& limitations appendix. This is the deliverable a pilot is judged on."
+)
+report_meta = ReportMeta(
+    facility_name="Demo Plant",
+    report_id=f"WW-MV-{intervention:%Y-%m}",
+    prepared_by="WattsWorth",
+    baseline_start=str(baseline_start),
+    baseline_end=baseline_end,
+    reporting_start=str(avoided["date"].min().date()),
+    reporting_end=str(avoided["date"].max().date()),
+    tariff_inr_per_kwh=tariff,
+    emission_factor=emission,
+    generated_at=datetime.now().isoformat(timespec="seconds"),
+)
+try:
+    pdf_bytes = build_mv_report_pdf(summary, model, avoided, report_meta)
+    xlsx_bytes = build_mv_report_xlsx(summary, model, avoided, report_meta)
+    rc1, rc2 = st.columns(2)
+    rc1.download_button(
+        "⬇️ M&V report (PDF)", pdf_bytes, file_name="wattsworth_mv_report.pdf",
+        mime="application/pdf", use_container_width=True,
+    )
+    rc2.download_button(
+        "⬇️ M&V workbook (Excel)", xlsx_bytes, file_name="wattsworth_mv_report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+except ValueError as exc:
+    st.warning(f"Report unavailable: {exc}")
