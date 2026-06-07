@@ -153,14 +153,25 @@ st.caption(
     "verdict, the autocorrelation-corrected significance, the CUSUM chart, and a methodology "
     "& limitations appendix. This is the deliverable a pilot is judged on."
 )
+# Report identity — so the deliverable carries the real customer's name, not "Demo Plant".
+# Defaults to the facility set on the Bill Snapshot page (shared via session_state).
+rc_name, rc_by = st.columns(2)
+facility_name = rc_name.text_input(
+    "Facility / customer name", value=st.session_state.get("facility_name", "Demo Plant"),
+    help="Appears on the PDF/Excel audit report.",
+)
+prepared_by = rc_by.text_input("Prepared by", value="WattsWorth")
+
 # Generate only on explicit click (and cache in session_state keyed on the inputs),
 # so report building is decoupled from every slider rerun.
-_report_sig = (str(baseline_start), str(intervention), float(tariff), float(emission))
+_report_sig = (str(baseline_start), str(intervention), float(tariff), float(emission),
+               facility_name, prepared_by)
 if st.button("📄 Prepare audit report (PDF + Excel)", type="primary"):
+    _slug = "".join(ch for ch in facility_name.upper() if ch.isalnum())[:6] or "PLANT"
     report_meta = ReportMeta(
-        facility_name="Demo Plant",
-        report_id=f"WW-MV-{intervention:%Y-%m}",
-        prepared_by="WattsWorth",
+        facility_name=facility_name or "Demo Plant",
+        report_id=f"WW-MV-{_slug}-{intervention:%Y-%m}",
+        prepared_by=prepared_by or "WattsWorth",
         baseline_start=str(baseline_start),
         baseline_end=baseline_end,
         reporting_start=str(avoided["date"].min().date()),
